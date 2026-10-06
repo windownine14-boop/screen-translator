@@ -154,30 +154,36 @@ class ScreenTranslatorService : Service() {
 
     private var isProjectionCallbackRegistered = false
 
-    private fun setupDisplayMetrics() {
-        try {
-            val metrics = DisplayMetrics()
-            @Suppress("DEPRECATION")
-            windowManager.defaultDisplay.getRealMetrics(metrics)
-            screenWidth = if (metrics.widthPixels > 0) metrics.widthPixels else 1080
-            screenHeight = if (metrics.heightPixels > 0) metrics.heightPixels else 1920
-            screenDensity = if (metrics.densityDpi > 0) metrics.densityDpi else 320
+    private fun getDeviceRealMetrics(): Triple<Int, Int, Int> {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val windowMetrics = windowManager.maximumWindowMetrics
+                val bounds = windowMetrics.bounds
+                val width = bounds.width()
+                val height = bounds.height()
+                val density = resources.configuration.densityDpi
+                Triple(width, height, density)
+            } else {
+                val metrics = DisplayMetrics()
+                @Suppress("DEPRECATION")
+                windowManager.defaultDisplay.getRealMetrics(metrics)
+                Triple(metrics.widthPixels, metrics.heightPixels, metrics.densityDpi)
+            }
         } catch (e: Exception) {
-            screenWidth = 1080
-            screenHeight = 1920
-            screenDensity = 320
+            Triple(1080, 1920, 320)
         }
+    }
+
+    private fun setupDisplayMetrics() {
+        val (w, h, d) = getDeviceRealMetrics()
+        screenWidth = w
+        screenHeight = h
+        screenDensity = d
     }
 
     private fun ensureDisplayMetrics(): Boolean {
         try {
-            val metrics = DisplayMetrics()
-            @Suppress("DEPRECATION")
-            windowManager.defaultDisplay.getRealMetrics(metrics)
-            val curW = metrics.widthPixels
-            val curH = metrics.heightPixels
-            val curDpi = metrics.densityDpi
-
+            val (curW, curH, curDpi) = getDeviceRealMetrics()
             if (curW > 0 && curH > 0 && (curW != screenWidth || curH != screenHeight)) {
                 screenWidth = curW
                 screenHeight = curH
@@ -206,6 +212,7 @@ class ScreenTranslatorService : Service() {
                     try {
                         virtualDisplay?.release()
                         virtualDisplay = null
+                        mediaProjection = null
                     } catch (e: Exception) {}
                 }
             }, android.os.Handler(android.os.Looper.getMainLooper()))
@@ -393,6 +400,11 @@ class ScreenTranslatorService : Service() {
     }
 
     private fun onBubbleClicked() {
+        // Quick visual pulse effect on bubble click
+        bubbleView?.animate()?.scaleX(0.85f)?.scaleY(0.85f)?.setDuration(100)?.withEndAction {
+            bubbleView?.animate()?.scaleX(1.0f)?.scaleY(1.0f)?.setDuration(100)?.start()
+        }?.start()
+
         if (isShowingTranslation) {
             overlayView?.clear()
             isShowingTranslation = false
@@ -430,9 +442,10 @@ class ScreenTranslatorService : Service() {
     private suspend fun captureScreen(): Bitmap? = withContext(Dispatchers.Default) {
         var image: Image? = null
         try {
-            // Drain/wait for latest frame (up to 250ms)
-            for (i in 0 until 5) {
-                image = imageReader?.acquireLatestImage()
+            // Drain/wait for frame (up to 1200ms: 24 attempts * 50ms)
+            // Checks both acquireLatestImage and acquireNextImage so static frames are not missed!
+            for (i in 0 until 24) {
+                image = imageReader?.acquireLatestImage() ?: imageReader?.acquireNextImage()
                 if (image != null) break
                 delay(50)
             }
@@ -442,17 +455,19 @@ class ScreenTranslatorService : Service() {
             val buffer = planes[0].buffer
             val pixelStride = planes[0].pixelStride
             val rowStride = planes[0].rowStride
-            val rowPadding = rowStride - pixelStride * screenWidth
+            val imgW = image.width
+            val imgH = image.height
+            val rowPadding = rowStride - pixelStride * imgW
 
             val bitmap = Bitmap.createBitmap(
-                screenWidth + rowPadding / pixelStride,
-                screenHeight,
+                imgW + rowPadding / pixelStride,
+                imgH,
                 Bitmap.Config.ARGB_8888
             )
             bitmap.copyPixelsFromBuffer(buffer)
 
-            if (rowPadding != 0) {
-                val cleanBitmap = Bitmap.createBitmap(bitmap, 0, 0, screenWidth, screenHeight)
+            if (rowPadding != 0 || bitmap.width != imgW || bitmap.height != imgH) {
+                val cleanBitmap = Bitmap.createBitmap(bitmap, 0, 0, imgW, imgH)
                 bitmap.recycle()
                 cleanBitmap
             } else {
@@ -469,12 +484,23 @@ class ScreenTranslatorService : Service() {
     private fun performTranslate() {
         if (isTranslating) return
 
+        if (mediaProjection == null || virtualDisplay == null || imageReader == null) {
+            Toast.makeText(
+                this@ScreenTranslatorService,
+                "สิทธิ์จับภาพหน้าจอหมดอายุ กรุณาเปิดแอปเพื่อกดเริ่มใหม่อีกครั้ง",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        Toast.makeText(this@ScreenTranslatorService, "กำลังอ่านหน้าจอและแปลภาษา...", Toast.LENGTH_SHORT).show()
+
         serviceScope.launch {
             isTranslating = true
             try {
                 val orientationChanged = ensureDisplayMetrics()
                 if (orientationChanged) {
-                    delay(150) // Wait for VirtualDisplay to push new frame in new orientation
+                    delay(250) // Wait for VirtualDisplay to push new frame in new orientation
                 }
 
                 val bitmap = captureScreen()
@@ -482,7 +508,7 @@ class ScreenTranslatorService : Service() {
                     val recognizedItems = ocrManager.recognizeText(bitmap, sourceLanguage)
 
                     if (recognizedItems.isEmpty()) {
-                        Toast.makeText(this@ScreenTranslatorService, "ไม่พบข้อความบนหน้าจอ", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@ScreenTranslatorService, "ไม่พบข้อความภาษาอังกฤษบนหน้าจอ", Toast.LENGTH_SHORT).show()
                     } else {
                         val translatedItems = if (selectedEngine == EngineType.GEMINI_FLASH_LITE) {
                             val apiKey = quotaManager.getApiKey()

@@ -160,6 +160,9 @@ class MainActivity : ComponentActivity() {
     private fun stopScreenServices() {
         stopService(Intent(this, com.screentranslate.app.service.ScreenTranslatorService::class.java))
         isServiceRunning = false
+        hasCapturePermission = false
+        captureData = null
+        captureResultCode = 0
         Toast.makeText(this, "ปิดการทำงานเรียบร้อย", Toast.LENGTH_SHORT).show()
     }
 }
