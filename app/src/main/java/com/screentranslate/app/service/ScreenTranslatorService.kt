@@ -39,6 +39,7 @@ import com.screentranslate.app.engine.QuotaManager
 import com.screentranslate.app.engine.TranslationEngine
 import com.screentranslate.app.model.EngineType
 import com.screentranslate.app.model.PresentationStyle
+import com.screentranslate.app.model.RecognizedTextItem
 import com.screentranslate.app.model.SupportedLanguage
 import com.screentranslate.app.model.TranslationMode
 import kotlinx.coroutines.CoroutineScope
@@ -486,7 +487,7 @@ class ScreenTranslatorService : Service() {
     private fun findFuzzyCachedTranslation(text: String): String? {
         val clean = text.replace(Regex("""[^a-zA-Z0-9ก-๙]"""), "").lowercase()
         if (clean.length < 3) return null
-        for ((key, value) in translationCache) {
+        for ((key, value) in translationCache.entries) {
             val keyClean = key.replace(Regex("""[^a-zA-Z0-9ก-๙]"""), "").lowercase()
             if (clean == keyClean || keyClean.contains(clean) || clean.contains(keyClean)) {
                 return value
