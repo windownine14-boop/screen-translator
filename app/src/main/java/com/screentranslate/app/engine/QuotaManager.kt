@@ -98,7 +98,13 @@ class QuotaManager(context: Context) {
      * Get or set user's custom Gemini API key.
      */
     fun getApiKey(): String {
-        return prefs.getString(KEY_GEMINI_API_KEY, "") ?: ""
+        val saved = prefs.getString(KEY_GEMINI_API_KEY, "") ?: ""
+        if (saved.isNotBlank()) return saved
+        return try {
+            com.screentranslate.app.BuildConfig.DEFAULT_GEMINI_API_KEY
+        } catch (e: Exception) {
+            ""
+        }
     }
 
     fun setApiKey(key: String) {
