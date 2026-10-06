@@ -1,0 +1,145 @@
+package com.screentranslate.app
+
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import android.media.projection.MediaProjectionManager
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.provider.Settings
+import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.*
+import androidx.core.content.ContextCompat
+import com.screentranslate.app.service.FloatingBubbleService
+import com.screentranslate.app.service.ScreenCaptureService
+import com.screentranslate.app.ui.MainScreen
+import com.screentranslate.app.ui.theme.ScreenTranslatorTheme
+
+class MainActivity : ComponentActivity() {
+
+    private var isServiceRunning by mutableStateOf(false)
+    private var hasOverlayPermission by mutableStateOf(false)
+    private var hasCapturePermission by mutableStateOf(false)
+
+    private var captureResultCode: Int = 0
+    private var captureData: Intent? = null
+
+    // Register Activity Result for Overlay Permission
+    private val overlayPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        checkPermissions()
+    }
+
+    // Register Activity Result for MediaProjection Screen Capture
+    private val screenCaptureLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            captureResultCode = result.resultCode
+            captureData = result.data
+            hasCapturePermission = true
+            Toast.makeText(this, "อนุญาตการดึงภาพหน้าจอเรียบร้อย", Toast.LENGTH_SHORT).show()
+            startScreenServices()
+        } else {
+            hasCapturePermission = false
+            Toast.makeText(this, "จำเป็นต้องอนุญาตการบันทึกภาพหน้าจอเพื่อแปลภาษา", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        checkPermissions()
+
+        setContent {
+            ScreenTranslatorTheme {
+                MainScreen(
+                    isServiceRunning = isServiceRunning,
+                    hasOverlayPermission = hasOverlayPermission,
+                    hasCapturePermission = hasCapturePermission,
+                    onToggleService = { enable ->
+                        if (enable) {
+                            startTranslationWorkflow()
+                        } else {
+                            stopScreenServices()
+                        }
+                    },
+                    onRequestOverlayPermission = { requestOverlayPermission() },
+                    onRequestCapturePermission = { requestCapturePermission() }
+                )
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        checkPermissions()
+    }
+
+    private fun checkPermissions() {
+        hasOverlayPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Settings.canDrawOverlays(this)
+        } else {
+            true
+        }
+    }
+
+    private fun requestOverlayPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName")
+            )
+            overlayPermissionLauncher.launch(intent)
+        }
+    }
+
+    private fun requestCapturePermission() {
+        val mpManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        screenCaptureLauncher.launch(mpManager.createScreenCaptureIntent())
+    }
+
+    private fun startTranslationWorkflow() {
+        if (!hasOverlayPermission) {
+            Toast.makeText(this, "กรุณาเปิดสิทธิ์ 'แสดงทับแอปอื่น' ก่อนเริ่มใช้งาน", Toast.LENGTH_LONG).show()
+            requestOverlayPermission()
+            return
+        }
+
+        if (!hasCapturePermission || captureData == null) {
+            requestCapturePermission()
+            return
+        }
+
+        startScreenServices()
+    }
+
+    private fun startScreenServices() {
+        if (captureData == null) return
+
+        // 1. Start ScreenCaptureService (Foreground Service)
+        val captureIntent = Intent(this, ScreenCaptureService::class.java).apply {
+            putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, captureResultCode)
+            putExtra(ScreenCaptureService.EXTRA_DATA, captureData)
+        }
+        ContextCompat.startForegroundService(this, captureIntent)
+
+        // 2. Start FloatingBubbleService
+        val bubbleIntent = Intent(this, FloatingBubbleService::class.java)
+        startService(bubbleIntent)
+
+        isServiceRunning = true
+        Toast.makeText(this, "เริ่มการทำงานปุ่มลอยแล้ว! กดปุ่มโฮมเพื่อทดสอบ", Toast.LENGTH_LONG).show()
+    }
+
+    private fun stopScreenServices() {
+        stopService(Intent(this, FloatingBubbleService::class.java))
+        stopService(Intent(this, ScreenCaptureService::class.java))
+        isServiceRunning = false
+        Toast.makeText(this, "ปิดการทำงานเรียบร้อย", Toast.LENGTH_SHORT).show()
+    }
+}

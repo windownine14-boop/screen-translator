@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">Screen Translator</string>
+    <string name="notification_channel_name">Screen Translator Service</string>
+    <string name="notification_channel_desc">Notifications for Screen Capture and Overlay Service</string>
+    <string name="service_running">Screen Translator is running</string>
+    <string name="tap_to_open">Tap to open app</string>
+    <string name="overlay_permission_title">Overlay Permission Required</string>
+    <string name="overlay_permission_desc">Please allow Screen Translator to display over other apps to show the floating bubble and translation overlay.</string>
+</resources>
