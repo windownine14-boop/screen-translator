@@ -21,14 +21,7 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: 8.4
+          cache: 'gradle'
 
       - name: Fix Line Endings and Grant Permissions
         run: |
@@ -36,8 +29,7 @@ jobs:
           chmod +x gradlew
 
       - name: Build Debug APK with Gradle
-        run: |
-          ./gradlew assembleDebug --stacktrace --no-daemon || gradle assembleDebug --stacktrace --no-daemon
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
