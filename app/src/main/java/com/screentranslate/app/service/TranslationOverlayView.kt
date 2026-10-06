@@ -83,58 +83,77 @@ class TranslationOverlayView(context: Context) : View(context) {
     }
 
     private fun drawInPlaceOverlay(canvas: Canvas) {
-        val cornerRadius = 14f
-        val paddingHorizontal = 12f
-        val paddingVertical = 8f
+        val cornerRadius = 8f
+        val paddingHorizontal = 6f
+        val paddingVertical = 3f
 
         for (item in items) {
             val text = item.translatedText.ifEmpty { item.originalText }
             if (text.isBlank()) continue
 
             val box = item.boundingBox
-            if (box.width() <= 0 || box.height() <= 0) continue
+            val boxW = box.width().toFloat()
+            val boxH = box.height().toFloat()
+            if (boxW <= 0f || boxH <= 0f) continue
 
-            // 1. Calculate an optimal, comfortable text size based on bounding box
-            val baseSize = (box.height() * 0.72f).coerceIn(24f, 52f)
+            // 1. Calculate estimated single-line height of the source text
+            val lineCount = maxOf(item.lineCount, 1)
+            val singleLineHeight = boxH / lineCount
+
+            // 2. Start font size matching the source text height (0.72x ratio)
+            var textSize = (singleLineHeight * 0.72f).coerceIn(12f, 32f)
+            val minTextSize = (textSize * 0.65f).coerceAtLeast(10f)
+
             val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = Color.WHITE
                 typeface = Typeface.DEFAULT_BOLD
-                textSize = baseSize
-                setShadowLayer(4f, 0f, 2f, Color.parseColor("#E6000000"))
+                this.textSize = textSize
+                setShadowLayer(2.5f, 0f, 1.5f, Color.parseColor("#E0000000"))
             }
 
-            // 2. Determine target width for text wrapping (at least original box width)
-            val minTextWidth = maxOf(box.width(), 80)
-            val maxAvailableWidth = (width - 32).coerceAtLeast(100)
-            val targetTextWidth = minTextWidth.coerceAtMost(maxAvailableWidth)
+            // 3. Target text width constrained to original box width (with screen boundaries)
+            val maxAllowedWidth = (width - 16).toFloat()
+            val targetTextWidth = maxOf(boxW, 40f).coerceAtMost(maxAllowedWidth)
 
-            // 3. Build multiline StaticLayout
-            val layout = StaticLayout.Builder.obtain(text, 0, text.length, textPaint, targetTextWidth)
+            var layout = StaticLayout.Builder.obtain(text, 0, text.length, textPaint, targetTextWidth.toInt())
                 .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                .setLineSpacing(2f, 1.15f)
-                .setIncludePad(true)
+                .setLineSpacing(1f, 1.05f)
+                .setIncludePad(false)
                 .build()
 
-            // 4. Measure card bounds to completely cover the original text and fit new Thai text
+            // 4. Auto-fit: If Thai text exceeds the original box height, step down font size
+            val maxTargetHeight = maxOf(boxH, singleLineHeight)
+            while (layout.height > maxTargetHeight && textSize > minTextSize) {
+                textSize -= 1f
+                textPaint.textSize = textSize
+                layout = StaticLayout.Builder.obtain(text, 0, text.length, textPaint, targetTextWidth.toInt())
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                    .setLineSpacing(1f, 1.05f)
+                    .setIncludePad(false)
+                    .build()
+            }
+
+            // 5. Measure card dimensions to fit tightly around original box and text
             val contentWidth = layout.width.toFloat()
             val contentHeight = layout.height.toFloat()
 
-            val cardWidth = maxOf(box.width().toFloat(), contentWidth) + (paddingHorizontal * 2)
-            val cardHeight = maxOf(box.height().toFloat(), contentHeight) + (paddingVertical * 2)
+            val cardWidth = maxOf(boxW, contentWidth) + (paddingHorizontal * 2)
+            val cardHeight = maxOf(boxH, contentHeight) + (paddingVertical * 2)
 
             // Position card directly over original box, constrained within screen
-            val left = (box.left.toFloat() - paddingHorizontal).coerceIn(8f, (width - cardWidth - 8f).coerceAtLeast(8f))
-            val top = (box.top.toFloat() - paddingVertical).coerceIn(8f, (height - cardHeight - 8f).coerceAtLeast(8f))
+            val left = (box.left.toFloat() - paddingHorizontal).coerceIn(4f, (width - cardWidth - 4f).coerceAtLeast(4f))
+            val top = (box.top.toFloat() - paddingVertical).coerceIn(4f, (height - cardHeight - 4f).coerceAtLeast(4f))
             val rectF = RectF(left, top, left + cardWidth, top + cardHeight)
 
-            // 5. Draw dark backdrop card to completely obscure original English text underneath
+            // 6. Draw clean dark backdrop to completely cover the original text
             canvas.drawRoundRect(rectF, cornerRadius, cornerRadius, bgPaint)
             canvas.drawRoundRect(rectF, cornerRadius, cornerRadius, borderPaint)
 
-            // 6. Draw clean multiline Thai text inside the card
+            // 7. Draw the Thai text neatly centered vertically inside the card
             canvas.save()
             val textDrawX = rectF.left + paddingHorizontal
-            val textDrawY = rectF.top + paddingVertical + ((rectF.height() - (paddingVertical * 2) - contentHeight) / 2).coerceAtLeast(0f)
+            val availableInnerHeight = rectF.height() - (paddingVertical * 2)
+            val textDrawY = rectF.top + paddingVertical + ((availableInnerHeight - contentHeight) / 2).coerceAtLeast(0f)
             canvas.translate(textDrawX, textDrawY)
             layout.draw(canvas)
             canvas.restore()

@@ -48,6 +48,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 
 /**
@@ -82,6 +83,10 @@ class ScreenTranslatorService : Service() {
     private var selectedEngine = EngineType.GEMINI_FLASH_LITE
     private var isTranslating = false
     private var isShowingTranslation = false
+
+    // Real-time Scrolling Tracking & Cache
+    private val translationCache = ConcurrentHashMap<String, String>()
+    private var trackingJob: Job? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -392,7 +397,8 @@ class ScreenTranslatorService : Service() {
 
     private fun onBubbleClicked() {
         if (isShowingTranslation) {
-            // If already showing translation, clear overlay
+            // If already showing translation, clear overlay & stop tracking
+            stopTracking()
             overlayView?.clear()
             isShowingTranslation = false
             return
@@ -401,6 +407,7 @@ class ScreenTranslatorService : Service() {
         if (currentMode == TranslationMode.LIVE_AUTO) {
             if (liveJob?.isActive == true) {
                 stopLiveMode()
+                stopTracking()
                 overlayView?.clear()
                 isShowingTranslation = false
             } else {
@@ -424,6 +431,68 @@ class ScreenTranslatorService : Service() {
     private fun stopLiveMode() {
         liveJob?.cancel()
         liveJob = null
+    }
+
+    private fun startTracking() {
+        trackingJob?.cancel()
+        trackingJob = serviceScope.launch(Dispatchers.Default) {
+            while (isActive && isShowingTranslation) {
+                delay(300) // Poll every 300ms for smooth real-time scroll tracking
+                if (!isShowingTranslation) break
+                trackScreenPositions()
+            }
+        }
+    }
+
+    private fun stopTracking() {
+        trackingJob?.cancel()
+        trackingJob = null
+    }
+
+    private suspend fun trackScreenPositions() {
+        if (isTranslating) return
+
+        try {
+            ensureDisplayMetrics()
+            val bitmap = captureScreen() ?: return
+
+            // Ultra-fast on-device ML Kit OCR (~25ms)
+            val detectedItems = ocrManager.recognizeText(bitmap, sourceLanguage)
+            bitmap.recycle()
+
+            if (detectedItems.isEmpty() || !isShowingTranslation) return
+
+            // Fast-match new coordinates with pre-translated cache
+            val trackedItems = mutableListOf<RecognizedTextItem>()
+            for (item in detectedItems) {
+                val raw = item.originalText.trim()
+                val cached = translationCache[raw] ?: findFuzzyCachedTranslation(raw)
+                if (cached != null) {
+                    item.translatedText = cached
+                    trackedItems.add(item)
+                }
+            }
+
+            if (trackedItems.isNotEmpty() && isShowingTranslation) {
+                withContext(Dispatchers.Main) {
+                    overlayView?.updateResults(trackedItems, presentationStyle)
+                }
+            }
+        } catch (e: Exception) {
+            // Silently ignore drop during rapid scroll
+        }
+    }
+
+    private fun findFuzzyCachedTranslation(text: String): String? {
+        val clean = text.replace(Regex("""[^a-zA-Z0-9ก-๙]"""), "").lowercase()
+        if (clean.length < 3) return null
+        for ((key, value) in translationCache) {
+            val keyClean = key.replace(Regex("""[^a-zA-Z0-9ก-๙]"""), "").lowercase()
+            if (clean == keyClean || keyClean.contains(clean) || clean.contains(keyClean)) {
+                return value
+            }
+        }
+        return null
     }
 
     private suspend fun captureScreen(): Bitmap? = withContext(Dispatchers.Default) {
@@ -504,8 +573,18 @@ class ScreenTranslatorService : Service() {
                             mlKitTranslator.translateItems(recognizedItems, sourceLanguage)
                         }
 
+                        // Cache translated items for instant real-time scrolling tracking
+                        for (item in translatedItems) {
+                            if (item.translatedText.isNotBlank()) {
+                                translationCache[item.originalText.trim()] = item.translatedText
+                            }
+                        }
+
                         overlayView?.updateResults(translatedItems, presentationStyle)
                         isShowingTranslation = true
+
+                        // Start continuous scroll tracking
+                        startTracking()
                     }
 
                     bitmap.recycle()
@@ -557,6 +636,7 @@ class ScreenTranslatorService : Service() {
     }
 
     override fun onDestroy() {
+        stopTracking()
         stopLiveMode()
         try {
             bubbleView?.let { windowManager.removeView(it) }

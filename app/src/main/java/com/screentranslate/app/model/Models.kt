@@ -8,7 +8,8 @@ import android.graphics.Rect
 data class RecognizedTextItem(
     val originalText: String,
     var translatedText: String = "",
-    val boundingBox: Rect
+    val boundingBox: Rect,
+    val lineCount: Int = 1
 )
 
 /**

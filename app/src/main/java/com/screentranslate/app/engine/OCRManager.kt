@@ -62,13 +62,16 @@ class OCRManager {
                 // Group by meaningful lines or blocks
                 val blockText = block.text.trim()
                 val box = block.boundingBox ?: Rect(0, 0, 0, 0)
+                val lines = block.lines
+                val lineCount = maxOf(lines.size, 1)
 
                 if (blockText.isNotEmpty()) {
                     items.add(
                         RecognizedTextItem(
                             originalText = blockText,
                             translatedText = "",
-                            boundingBox = box
+                            boundingBox = box,
+                            lineCount = lineCount
                         )
                     )
                 }
