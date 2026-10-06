@@ -26,8 +26,8 @@ class GeminiTranslator(
 
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
-    // Gemini 2.0 Flash-Lite endpoint (Fastest & most cost-effective with generous Free Tier)
-    private val modelEndpoint = "gemini-2.0-flash-lite:generateContent"
+    // Gemini 3.5 Flash-Lite endpoint (Official fast & accurate model with free tier)
+    private val modelEndpoint = "gemini-3.5-flash-lite:generateContent"
 
     override suspend fun translateItems(
         items: List<RecognizedTextItem>,
@@ -45,11 +45,12 @@ class GeminiTranslator(
 
         // Batch translate by sending a numbered list to minimize API calls
         val promptBuilder = StringBuilder()
-        promptBuilder.append("Translate each of the following lines into natural, fluent Thai. ")
-        promptBuilder.append("Keep the exact same numbering format (e.g., 1. ..., 2. ...). Do not add any extra commentary:\n\n")
+        promptBuilder.append("You are a professional game translator. Translate each numbered line into concise, natural, fluent Thai suitable for in-game UI overlay. ")
+        promptBuilder.append("Output ONLY the numbered list with format '1. <Thai translation>'. Exactly one line per numbered item. Do not include notes, phonetic guides, or markdown formatting:\n\n")
 
         items.forEachIndexed { index, item ->
-            promptBuilder.append("${index + 1}. ${item.originalText}\n")
+            val cleanText = item.originalText.replace("\n", " ").replace("\r", " ").trim()
+            promptBuilder.append("${index + 1}. $cleanText\n")
         }
 
         try {
@@ -57,7 +58,8 @@ class GeminiTranslator(
             val translatedLines = parseNumberedResponse(responseText, items.size)
 
             items.forEachIndexed { index, item ->
-                item.translatedText = translatedLines.getOrNull(index) ?: item.originalText
+                val translated = translatedLines.getOrNull(index)?.trim() ?: ""
+                item.translatedText = if (translated.isNotBlank()) translated else item.originalText
             }
         } catch (e: QuotaExceededException) {
             throw e
@@ -131,23 +133,26 @@ class GeminiTranslator(
     }
 
     private fun parseNumberedResponse(response: String, expectedCount: Int): List<String> {
-        val result = mutableListOf<String>()
+        val resultMap = mutableMapOf<Int, String>()
         val lines = response.lines()
 
         for (line in lines) {
             val trimmed = line.trim()
-            val match = Regex("""^\d+[\.\)]\s*(.*)""").find(trimmed)
+            val match = Regex("""^(\d+)[\.\:\)]\s*(.*)""").find(trimmed)
             if (match != null) {
-                result.add(match.groupValues[1].trim())
+                val index = match.groupValues[1].toIntOrNull()
+                var text = match.groupValues[2].trim()
+                // Clean markdown bold/stars if any
+                text = text.replace("**", "").replace("*", "").trim()
+                if (index != null && index in 1..expectedCount) {
+                    resultMap[index - 1] = text
+                }
             }
         }
 
-        if (result.size < expectedCount) {
-            while (result.size < expectedCount) {
-                result.add("")
-            }
+        return (0 until expectedCount).map { i ->
+            resultMap[i] ?: ""
         }
-        return result
     }
 
     override fun close() {

@@ -9,6 +9,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.PixelFormat
@@ -78,7 +79,7 @@ class ScreenTranslatorService : Service() {
     private var currentMode = TranslationMode.SNAP
     private var presentationStyle = PresentationStyle.IN_PLACE
     private var sourceLanguage = SupportedLanguage.ENGLISH
-    private var selectedEngine = EngineType.ML_KIT_OFFLINE
+    private var selectedEngine = EngineType.GEMINI_FLASH_LITE
     private var isTranslating = false
     private var isShowingTranslation = false
 
@@ -115,7 +116,7 @@ class ScreenTranslatorService : Service() {
                 selectedEngine = try {
                     EngineType.valueOf(engineName)
                 } catch (e: Exception) {
-                    EngineType.ML_KIT_OFFLINE
+                    EngineType.GEMINI_FLASH_LITE
                 }
             }
 
@@ -149,6 +150,8 @@ class ScreenTranslatorService : Service() {
         return START_NOT_STICKY
     }
 
+    private var isProjectionCallbackRegistered = false
+
     private fun setupDisplayMetrics() {
         try {
             val metrics = DisplayMetrics()
@@ -164,28 +167,65 @@ class ScreenTranslatorService : Service() {
         }
     }
 
-    private fun initVirtualDisplay() {
-        if (mediaProjection == null) return
+    private fun ensureDisplayMetrics(): Boolean {
         try {
-            imageReader?.close()
-            virtualDisplay?.release()
+            val metrics = DisplayMetrics()
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.getRealMetrics(metrics)
+            val curW = metrics.widthPixels
+            val curH = metrics.heightPixels
+            val curDpi = metrics.densityDpi
 
-            // Mandatory requirement for Android 14: registerCallback before createVirtualDisplay
+            if (curW > 0 && curH > 0 && (curW != screenWidth || curH != screenHeight)) {
+                screenWidth = curW
+                screenHeight = curH
+                screenDensity = curDpi
+
+                reconfigureVirtualDisplay()
+                return true
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return false
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        ensureDisplayMetrics()
+    }
+
+    private fun registerProjectionCallbackIfNeeded() {
+        if (isProjectionCallbackRegistered || mediaProjection == null) return
+        try {
             mediaProjection?.registerCallback(object : MediaProjection.Callback() {
                 override fun onStop() {
                     super.onStop()
                     try {
                         virtualDisplay?.release()
+                        virtualDisplay = null
                     } catch (e: Exception) {}
                 }
             }, android.os.Handler(android.os.Looper.getMainLooper()))
+            isProjectionCallbackRegistered = true
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
 
-            imageReader = ImageReader.newInstance(
-                screenWidth,
-                screenHeight,
-                PixelFormat.RGBA_8888,
-                2
-            )
+    private fun initVirtualDisplay() {
+        if (mediaProjection == null) return
+        try {
+            registerProjectionCallbackIfNeeded()
+
+            if (imageReader == null) {
+                imageReader = ImageReader.newInstance(
+                    screenWidth,
+                    screenHeight,
+                    PixelFormat.RGBA_8888,
+                    2
+                )
+            }
 
             virtualDisplay = mediaProjection?.createVirtualDisplay(
                 "ScreenTranslatorCapture",
@@ -197,6 +237,32 @@ class ScreenTranslatorService : Service() {
                 null,
                 null
             )
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun reconfigureVirtualDisplay() {
+        if (mediaProjection == null) return
+        try {
+            val newReader = ImageReader.newInstance(
+                screenWidth,
+                screenHeight,
+                PixelFormat.RGBA_8888,
+                2
+            )
+
+            if (virtualDisplay != null) {
+                // Dynamically resize existing VirtualDisplay and attach new surface (API 21+)
+                // Keeps the single MediaProjection token valid on Android 14 without crashing!
+                virtualDisplay?.resize(screenWidth, screenHeight, screenDensity)
+                virtualDisplay?.surface = newReader.surface
+                imageReader?.close()
+                imageReader = newReader
+            } else {
+                imageReader = newReader
+                initVirtualDisplay()
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -363,7 +429,12 @@ class ScreenTranslatorService : Service() {
     private suspend fun captureScreen(): Bitmap? = withContext(Dispatchers.Default) {
         var image: Image? = null
         try {
-            image = imageReader?.acquireLatestImage()
+            // Drain/wait for latest frame (up to 250ms)
+            for (i in 0 until 5) {
+                image = imageReader?.acquireLatestImage()
+                if (image != null) break
+                delay(50)
+            }
             if (image == null) return@withContext null
 
             val planes = image.planes
@@ -400,6 +471,11 @@ class ScreenTranslatorService : Service() {
         serviceScope.launch {
             isTranslating = true
             try {
+                val orientationChanged = ensureDisplayMetrics()
+                if (orientationChanged) {
+                    delay(150) // Wait for VirtualDisplay to push new frame in new orientation
+                }
+
                 val bitmap = captureScreen()
                 if (bitmap != null) {
                     val recognizedItems = ocrManager.recognizeText(bitmap, sourceLanguage)

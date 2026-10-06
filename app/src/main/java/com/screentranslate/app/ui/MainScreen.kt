@@ -41,7 +41,7 @@ fun MainScreen(
     var selectedLanguage by remember { mutableStateOf(SupportedLanguage.ENGLISH) }
     var selectedMode by remember { mutableStateOf(TranslationMode.SNAP) }
     var selectedStyle by remember { mutableStateOf(PresentationStyle.IN_PLACE) }
-    var selectedEngine by remember { mutableStateOf(EngineType.ML_KIT_OFFLINE) }
+    var selectedEngine by remember { mutableStateOf(EngineType.GEMINI_FLASH_LITE) }
 
     var apiKeyInput by remember { mutableStateOf(currentApiKey) }
     var showApiKey by remember { mutableStateOf(false) }

@@ -32,7 +32,7 @@ class MainActivity : ComponentActivity() {
         QuotaStatus(usedToday = 0, remaining = 1500, resetsInHours = 0, resetsInMinutes = 0)
     )
     private var currentApiKey by mutableStateOf("")
-    private var activeEngine = EngineType.ML_KIT_OFFLINE
+    private var activeEngine = EngineType.GEMINI_FLASH_LITE
 
     private var captureResultCode: Int = 0
     private var captureData: Intent? = null
