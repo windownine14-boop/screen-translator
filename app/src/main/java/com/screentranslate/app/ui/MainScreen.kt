@@ -48,9 +48,10 @@ fun MainScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                Icons.Default.Translate,
+                                painter = androidx.compose.ui.res.painterResource(id = com.screentranslate.app.R.drawable.ic_translate),
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimary
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(24.dp)
                             )
                         }
                         Spacer(modifier = Modifier.width(12.dp))
