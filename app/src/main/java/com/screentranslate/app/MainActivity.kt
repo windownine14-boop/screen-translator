@@ -17,8 +17,7 @@ import androidx.core.content.ContextCompat
 import com.screentranslate.app.engine.QuotaManager
 import com.screentranslate.app.model.EngineType
 import com.screentranslate.app.model.QuotaStatus
-import com.screentranslate.app.service.FloatingBubbleService
-import com.screentranslate.app.service.ScreenCaptureService
+import com.screentranslate.app.service.ScreenTranslatorService
 import com.screentranslate.app.ui.MainScreen
 import com.screentranslate.app.ui.theme.ScreenTranslatorTheme
 
@@ -146,26 +145,20 @@ class MainActivity : ComponentActivity() {
     private fun startScreenServices() {
         if (captureData == null) return
 
-        // 1. Start ScreenCaptureService (Foreground Service)
-        val captureIntent = Intent(this, ScreenCaptureService::class.java).apply {
-            putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, captureResultCode)
-            putExtra(ScreenCaptureService.EXTRA_DATA, captureData)
+        // Start unified ScreenTranslatorService
+        val serviceIntent = Intent(this, com.screentranslate.app.service.ScreenTranslatorService::class.java).apply {
+            putExtra(com.screentranslate.app.service.ScreenTranslatorService.EXTRA_RESULT_CODE, captureResultCode)
+            putExtra(com.screentranslate.app.service.ScreenTranslatorService.EXTRA_DATA, captureData)
+            putExtra(com.screentranslate.app.service.ScreenTranslatorService.EXTRA_ENGINE, activeEngine.name)
         }
-        ContextCompat.startForegroundService(this, captureIntent)
-
-        // 2. Start FloatingBubbleService
-        val bubbleIntent = Intent(this, FloatingBubbleService::class.java).apply {
-            putExtra(FloatingBubbleService.EXTRA_ENGINE, activeEngine.name)
-        }
-        startService(bubbleIntent)
+        ContextCompat.startForegroundService(this, serviceIntent)
 
         isServiceRunning = true
         Toast.makeText(this, "เริ่มการทำงานปุ่มลอยแล้ว! กดปุ่มโฮมเพื่อทดสอบ", Toast.LENGTH_LONG).show()
     }
 
     private fun stopScreenServices() {
-        stopService(Intent(this, FloatingBubbleService::class.java))
-        stopService(Intent(this, ScreenCaptureService::class.java))
+        stopService(Intent(this, com.screentranslate.app.service.ScreenTranslatorService::class.java))
         isServiceRunning = false
         Toast.makeText(this, "ปิดการทำงานเรียบร้อย", Toast.LENGTH_SHORT).show()
     }

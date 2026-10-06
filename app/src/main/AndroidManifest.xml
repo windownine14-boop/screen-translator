@@ -35,18 +35,12 @@
             </intent-filter>
         </activity>
 
-        <!-- Foreground Service for MediaProjection Screen Capture -->
+        <!-- Unified Foreground Service for Screen Capture & Floating Bubble Overlay -->
         <service
-            android:name=".service.ScreenCaptureService"
+            android:name=".service.ScreenTranslatorService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
-
-        <!-- Foreground Service for Floating Bubble & Overlay Rendering -->
-        <service
-            android:name=".service.FloatingBubbleService"
-            android:enabled="true"
-            android:exported="false" />
 
     </application>
 
