@@ -20,9 +20,9 @@ class TranslationOverlayView(context: Context) : View(context) {
     private var presentationStyle: PresentationStyle = PresentationStyle.IN_PLACE
     private var isVisibleTranslation = true
 
-    // Paints for In-Place Drawing (Deep Slate 96% opacity to completely cover original text)
+    // Paints for In-Place Drawing (Deep Slate 100% Solid to completely cover original text)
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#F50D1117") // Deep dark background
+        color = Color.parseColor("#FF0B0F19") // 100% Solid dark background - completely hides English text!
         style = Paint.Style.FILL
     }
 
@@ -84,8 +84,8 @@ class TranslationOverlayView(context: Context) : View(context) {
 
     private fun drawInPlaceOverlay(canvas: Canvas) {
         val cornerRadius = 8f
-        val paddingHorizontal = 6f
-        val paddingVertical = 3f
+        val paddingHorizontal = 10f
+        val paddingVertical = 4f
 
         for (item in items) {
             val text = item.translatedText.ifEmpty { item.originalText }
@@ -100,8 +100,8 @@ class TranslationOverlayView(context: Context) : View(context) {
             val lineCount = maxOf(item.lineCount, 1)
             val singleLineHeight = boxH / lineCount
 
-            // 2. Start font size matching the source text height (0.72x ratio)
-            var textSize = (singleLineHeight * 0.72f).coerceIn(12f, 32f)
+            // 2. Start font size matching the source text height (0.70x ratio, capped at 26f)
+            var textSize = (singleLineHeight * 0.70f).coerceIn(12f, 26f)
             val minTextSize = (textSize * 0.65f).coerceAtLeast(10f)
 
             val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
