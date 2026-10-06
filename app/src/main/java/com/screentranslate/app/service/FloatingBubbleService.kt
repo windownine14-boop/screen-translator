@@ -15,10 +15,15 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.ImageView
+import android.widget.Toast
 import com.screentranslate.app.R
+import com.screentranslate.app.engine.GeminiTranslator
 import com.screentranslate.app.engine.MLKitTranslator
 import com.screentranslate.app.engine.OCRManager
+import com.screentranslate.app.engine.QuotaExceededException
+import com.screentranslate.app.engine.QuotaManager
 import com.screentranslate.app.engine.TranslationEngine
+import com.screentranslate.app.model.EngineType
 import com.screentranslate.app.model.PresentationStyle
 import com.screentranslate.app.model.SupportedLanguage
 import com.screentranslate.app.model.TranslationMode
@@ -43,12 +48,14 @@ class FloatingBubbleService : Service() {
     private var liveJob: Job? = null
 
     private val ocrManager by lazy { OCRManager() }
-    private val translationEngine: TranslationEngine by lazy { MLKitTranslator() }
+    private val mlKitTranslator: TranslationEngine by lazy { MLKitTranslator() }
+    private val quotaManager by lazy { QuotaManager(this) }
 
     // State settings
     private var currentMode = TranslationMode.SNAP
     private var presentationStyle = PresentationStyle.IN_PLACE
     private var sourceLanguage = SupportedLanguage.ENGLISH
+    private var selectedEngine = EngineType.ML_KIT_OFFLINE
     private var isTranslating = false
 
     private val connection = object : ServiceConnection {
@@ -78,6 +85,20 @@ class FloatingBubbleService : Service() {
 
         createOverlayView()
         createFloatingBubble()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        intent?.let {
+            val engineName = it.getStringExtra(EXTRA_ENGINE)
+            if (engineName != null) {
+                selectedEngine = try {
+                    EngineType.valueOf(engineName)
+                } catch (e: Exception) {
+                    EngineType.ML_KIT_OFFLINE
+                }
+            }
+        }
+        return START_STICKY
     }
 
     private fun createOverlayView() {
@@ -188,7 +209,6 @@ class FloatingBubbleService : Service() {
 
     private fun onBubbleClicked() {
         if (currentMode == TranslationMode.LIVE_AUTO) {
-            // In live mode, tapping toggles pause/resume or peek
             if (liveJob?.isActive == true) {
                 stopLiveMode()
                 overlayView?.clear()
@@ -196,7 +216,6 @@ class FloatingBubbleService : Service() {
                 startLiveMode()
             }
         } else {
-            // In Snap mode, tapping performs on-demand translation
             performTranslate()
         }
     }
@@ -216,6 +235,10 @@ class FloatingBubbleService : Service() {
 
     fun setSourceLanguage(lang: SupportedLanguage) {
         this.sourceLanguage = lang
+    }
+
+    fun setEngineType(engine: EngineType) {
+        this.selectedEngine = engine
     }
 
     private fun startLiveMode() {
@@ -245,8 +268,28 @@ class FloatingBubbleService : Service() {
                     // 2. Perform OCR via ML Kit
                     val recognizedItems = ocrManager.recognizeText(bitmap, sourceLanguage)
 
-                    // 3. Translate recognized texts
-                    val translatedItems = translationEngine.translateItems(recognizedItems, sourceLanguage)
+                    // 3. Translate recognized texts using chosen engine
+                    val translatedItems = if (selectedEngine == EngineType.GEMINI_FLASH_LITE) {
+                        val apiKey = quotaManager.getApiKey()
+                        if (apiKey.isNotBlank()) {
+                            try {
+                                val gemini = GeminiTranslator(apiKey, quotaManager)
+                                gemini.translateItems(recognizedItems, sourceLanguage)
+                            } catch (e: QuotaExceededException) {
+                                // Quota exceeded! Show alert and fall back gracefully to ML Kit
+                                Toast.makeText(
+                                    this@FloatingBubbleService,
+                                    "⚠️ โควต้า Gemini ฟรีวันนี้หมดแล้ว! สลับไปใช้ Google ML Kit แทน",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                                mlKitTranslator.translateItems(recognizedItems, sourceLanguage)
+                            }
+                        } else {
+                            mlKitTranslator.translateItems(recognizedItems, sourceLanguage)
+                        }
+                    } else {
+                        mlKitTranslator.translateItems(recognizedItems, sourceLanguage)
+                    }
 
                     // 4. Update overlay UI
                     overlayView?.updateResults(translatedItems, presentationStyle)
@@ -271,7 +314,11 @@ class FloatingBubbleService : Service() {
         bubbleView?.let { windowManager.removeView(it) }
         overlayView?.let { windowManager.removeView(it) }
         ocrManager.close()
-        translationEngine.close()
+        mlKitTranslator.close()
         super.onDestroy()
+    }
+
+    companion object {
+        const val EXTRA_ENGINE = "extra_engine"
     }
 }

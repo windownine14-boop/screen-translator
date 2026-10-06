@@ -14,6 +14,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
 import androidx.core.content.ContextCompat
+import com.screentranslate.app.engine.QuotaManager
+import com.screentranslate.app.model.EngineType
+import com.screentranslate.app.model.QuotaStatus
 import com.screentranslate.app.service.FloatingBubbleService
 import com.screentranslate.app.service.ScreenCaptureService
 import com.screentranslate.app.ui.MainScreen
@@ -24,6 +27,13 @@ class MainActivity : ComponentActivity() {
     private var isServiceRunning by mutableStateOf(false)
     private var hasOverlayPermission by mutableStateOf(false)
     private var hasCapturePermission by mutableStateOf(false)
+
+    private val quotaManager by lazy { QuotaManager(this) }
+    private var currentQuotaStatus by mutableStateOf(
+        QuotaStatus(usedToday = 0, remaining = 1500, resetsInHours = 0, resetsInMinutes = 0)
+    )
+    private var currentApiKey by mutableStateOf("")
+    private var activeEngine = EngineType.ML_KIT_OFFLINE
 
     private var captureResultCode: Int = 0
     private var captureData: Intent? = null
@@ -54,6 +64,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         checkPermissions()
+        refreshQuota()
 
         setContent {
             ScreenTranslatorTheme {
@@ -61,7 +72,15 @@ class MainActivity : ComponentActivity() {
                     isServiceRunning = isServiceRunning,
                     hasOverlayPermission = hasOverlayPermission,
                     hasCapturePermission = hasCapturePermission,
-                    onToggleService = { enable ->
+                    quotaStatus = currentQuotaStatus,
+                    currentApiKey = currentApiKey,
+                    onSaveApiKey = { newKey ->
+                        quotaManager.setApiKey(newKey)
+                        currentApiKey = newKey
+                        Toast.makeText(this, "บันทึก API Key สำเร็จ!", Toast.LENGTH_SHORT).show()
+                    },
+                    onToggleService = { enable, engine ->
+                        activeEngine = engine
                         if (enable) {
                             startTranslationWorkflow()
                         } else {
@@ -78,6 +97,12 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         checkPermissions()
+        refreshQuota()
+    }
+
+    private fun refreshQuota() {
+        currentQuotaStatus = quotaManager.getQuotaStatus()
+        currentApiKey = quotaManager.getApiKey()
     }
 
     private fun checkPermissions() {
@@ -129,7 +154,9 @@ class MainActivity : ComponentActivity() {
         ContextCompat.startForegroundService(this, captureIntent)
 
         // 2. Start FloatingBubbleService
-        val bubbleIntent = Intent(this, FloatingBubbleService::class.java)
+        val bubbleIntent = Intent(this, FloatingBubbleService::class.java).apply {
+            putExtra(FloatingBubbleService.EXTRA_ENGINE, activeEngine.name)
+        }
         startService(bubbleIntent)
 
         isServiceRunning = true

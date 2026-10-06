@@ -12,6 +12,17 @@ data class RecognizedTextItem(
 )
 
 /**
+ * Real-time Quota Information for Gemini Free Tier.
+ */
+data class QuotaStatus(
+    val usedToday: Int,
+    val maxDaily: Int = 1500,
+    val remaining: Int,
+    val resetsInHours: Int,
+    val resetsInMinutes: Int
+)
+
+/**
  * Translation trigger modes.
  */
 enum class TranslationMode(val title: String, val description: String) {
@@ -47,5 +58,5 @@ enum class SupportedLanguage(
  */
 enum class EngineType(val title: String, val isOffline: Boolean) {
     ML_KIT_OFFLINE("Google ML Kit (ออฟไลน์ 100% ฟรีและเร็ว)", true),
-    GEMINI_CLOUD("Google Gemini 2.0 Flash (แปลสละสลวย เข้าใจบริบท)", false)
+    GEMINI_FLASH_LITE("Google Gemini 3.5 Flash-Lite (แปลสละสลวยพิเศษ)", false)
 }
