@@ -31,9 +31,24 @@ jobs:
       - name: Build Debug APK with Gradle
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: |
+          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee gradle_build.log
+
+      - name: Show Error Summary if Failed
+        if: failure()
+        run: |
+          echo "=== GRADLE ERROR SUMMARY ==="
+          grep -E "(e: |ERROR:|FAILURE:|FAILED)" gradle_build.log -A 5 || tail -n 60 gradle_build.log
+
+      - name: Upload Build Log on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-failure-log
+          path: gradle_build.log
 
       - name: Upload Debug APK Artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: ScreenTranslator-Debug-APK
