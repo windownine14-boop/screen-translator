@@ -169,6 +169,16 @@ class ScreenTranslatorService : Service() {
             imageReader?.close()
             virtualDisplay?.release()
 
+            // Mandatory requirement for Android 14: registerCallback before createVirtualDisplay
+            mediaProjection?.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() {
+                    super.onStop()
+                    try {
+                        virtualDisplay?.release()
+                    } catch (e: Exception) {}
+                }
+            }, android.os.Handler(android.os.Looper.getMainLooper()))
+
             imageReader = ImageReader.newInstance(
                 screenWidth,
                 screenHeight,
@@ -234,9 +244,10 @@ class ScreenTranslatorService : Service() {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
+        val size = (56 * resources.displayMetrics.density).toInt()
         val bubbleParams = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            size,
+            size,
             layoutType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
@@ -248,8 +259,6 @@ class ScreenTranslatorService : Service() {
 
         val imageView = ImageView(this).apply {
             setImageResource(R.drawable.ic_bubble)
-            val size = (56 * resources.displayMetrics.density).toInt()
-            layoutParams = WindowManager.LayoutParams(size, size)
             elevation = 20f
         }
         bubbleView = imageView
