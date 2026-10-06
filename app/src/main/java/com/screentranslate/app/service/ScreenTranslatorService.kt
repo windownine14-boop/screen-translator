@@ -123,7 +123,7 @@ class ScreenTranslatorService : Service() {
                 it.getParcelableExtra(EXTRA_DATA, Intent::class.java)
             } else {
                 @Suppress("DEPRECATION")
-                it.getParcelableExtra(EXTRA_DATA)
+                it.getParcelableExtra(EXTRA_DATA) as? Intent
             }
 
             if (resultCode != 0 && data != null && mediaProjection == null) {
